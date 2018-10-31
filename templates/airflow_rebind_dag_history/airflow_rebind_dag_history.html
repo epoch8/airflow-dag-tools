@@ -1,0 +1,96 @@
+{% extends "airflow/master.html" %}
+
+{% block title %}Airflow - Admin Tools{% endblock %}
+
+{% block head_css %}
+{{ super() }}
+
+{% endblock %}
+
+{% block body %}
+<div id="main_content">
+
+    <h2>Bind DAGs History</h2>
+
+    <a href="#DagsInfoDiv" class="btn btn-info" data-toggle="collapse">All old and new dags</a>
+    <div id="DagsInfoDiv" class="collapse">
+    <h4>Old DAGs with task history</h4>
+        <h5>Only paused DAGs without running tasks.</h5>
+        <ul>
+        {% for old_dag in old_dags_with_task_history %}
+            <li>{{old_dag}}</li>
+        {% endfor %}
+        </ul>
+
+    <h4>New DAGs for task history</h4>
+        <h5>All other DAGs</h5>
+        <ul>
+        {% for new_dag in new_dags_for_task_history %}
+            <li>{{new_dag}}</li>
+        {% endfor %}
+        </ul>
+    </div>
+
+    <br>
+    <br>
+    <form method="post">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+
+        <div style="display: flex">
+
+            <div>
+                <select name="old_dag_id" class="form-control" title="Old DAGs">
+                    <option>Select</option>
+                    {% for old_dag in old_dags_with_task_history %}
+                    <option value={{old_dag}} {% if old_dag_id == old_dag %}selected{% endif %}>{{old_dag}}</option>
+                    {% endfor %}
+                </select>
+                {% if old_dag_stats is not none %}
+                    {% for key, value in old_dag_stats.items() %}
+                       <h4>{{key}} : {{value}}</h4>
+                    {% endfor %}
+                {% endif %}
+            </div>
+
+            <div style="padding-left: 20px"><h4>In to</h4></div>
+
+            <div style="padding-left: 30px">
+                <select name="new_dag_id" class="form-control" title="New DAGs">
+                    <option>Select</option>
+                    {% for new_dag in new_dags_for_task_history %}
+                    <option value={{new_dag}} {% if new_dag_id == new_dag  %}selected{% endif %}>{{new_dag}}</option>
+                    {% endfor %}
+                </select>
+                {% if new_dag_stats is not none %}
+                    {% for key, value in new_dag_stats.items() %}
+                       <h4>{{key}}: {{value}}</h4>
+                    {% endfor %}
+                {% endif %}
+            </div>
+
+        </div>
+
+        <div style="padding-top: 20px">
+            <input type="submit" name="action" class="btn btn" value="Check">
+        </div>
+
+        {% if old_dag_stats is not none and new_dag_stats is not none %}
+        <div style="padding-top: 70px">
+            <p><input type="checkbox" id="drop_old_dag" name="drop_old_dag" value="True" {% if drop_old_dag == "True" %}checked{% endif %}>
+            <label for="drop_old_dag">Drop old dag</label></p>
+
+            <p><input type="checkbox" id="agreement_with_change" name="agreement_with_change" value="True" {% if agreement_with_change == "True" %}checked{% endif %}>
+            <label for="agreement_with_change">Agreement with change</label></p>
+
+            <input type="submit" name="action" class="btn btn-primary" value="Bind DAG history">
+        </div>
+        {% endif %}
+
+    </form>
+</div>
+{% endblock %}
+
+{% block tail %}
+{{ super() }}
+
+{% endblock %}
