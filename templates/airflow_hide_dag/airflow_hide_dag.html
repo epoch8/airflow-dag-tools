@@ -1,0 +1,333 @@
+{% extends "airflow/master.html" %}
+
+{% block title %}Airflow - Admin Tools{% endblock %}
+
+
+{% block head_css %}
+{{ super() }}
+<link href="{{ url_for("static", filename="dataTables.bootstrap.css") }}" rel="stylesheet" type="text/css" >
+<link href="{{ url_for("static", filename="bootstrap-toggle.min.css") }}" rel="stylesheet" type="text/css">
+{% endblock %}
+
+{% block body %}
+<div id="main_content">
+
+    <div class="row">
+        <div class="col-sm-12">
+            <table id="dags" class="table table-striped table-bordered dataTable no-footer" role="grid" aria-describedby="dags_info">
+                <thead>
+                <tr role="row">
+                    <th>is_active</th>
+                    <th width="12"><span id="pause_header" class="glyphicon glyphicon-info-sign" title="Use this toggle to pause a DAG. The scheduler won't schedule new tasks instances for a paused DAG. Tasks already running at pause time won't be affected."></span></th>
+                    <th>DAG</th>
+                    <th>Schedule</th>
+                    <th>Owner</th>
+                    <th style="padding-left: 5px;">Recent Tasks<span id="statuses_info" class="glyphicon glyphicon-info-sign" aria-hidden="true" title="Status of tasks from all active DAG runs or, if not currently active, from most recent run."></span></th>
+                    <th style="padding-left: 5px;">Last Run <span id="statuses_info" class="glyphicon glyphicon-info-sign" aria-hidden="true" title="Execution Date/Time of Highest Dag Run."></span></th>
+                    <th style="padding-left: 5px;">DAG Runs<span id="statuses_info" class="glyphicon glyphicon-info-sign" aria-hidden="true" title="Status of all previous DAG runs."></span></th>
+                </tr>
+                </thead>
+                <tbody>
+
+        {% for dag_id in dag_ids_in_page %}
+        {% set dag = webserver_dags[dag_id] if dag_id in webserver_dags else None %}
+        <tr>
+
+            <!-- Column 1: Active dag on/off -->
+            <td>
+              {% if dag_id in orm_dags %}
+                <input id="active-{{ dag_id }}" dag_id="{{ dag_id }}" type="checkbox" {{ "checked" if orm_dags[dag_id].is_active else "" }} data-toggle="toggle" data-size="mini" method="post">
+              {% endif %}
+            </td>
+
+            <!-- Column 2: Turn dag on/off -->
+            <td>
+              {% if dag_id in orm_dags %}
+                <input id="toggle-{{ dag_id }}" dag_id="{{ dag_id }}" type="checkbox" {{ "checked" if not orm_dags[dag_id].is_paused else "" }} data-toggle="toggle" data-size="mini" method="post">
+              {% endif %}
+            </td>
+
+            <!-- Column 3: Name -->
+            <td>
+                {% if dag_id in webserver_dags %}
+                <a href="{{ url_for('airflow.'+ 'tree', dag_id=dag.dag_id) }}" title="{{ dag.description }}">
+                    {{ dag_id }}
+                </a>
+                {% else %}
+                    {{ dag_id }}
+                    <span class="glyphicon glyphicon-info-sign" class="info" aria-hidden="true" title="This DAG isn't available in the web server's DagBag object. It shows up in this list because the scheduler marked it as active in the metadata database."></span>
+                {% endif %}
+                {% if dag_id not in orm_dags %}
+                    <span class="glyphicon glyphicon-info-sign" class="info" aria-hidden="true" title="This DAG seems to be existing only locally. The master scheduler doesn't seem to be aware of its existence."></span>
+                {% endif %}
+            </td>
+
+            <!-- Column 4: Dag Schedule -->
+            <td>
+                {% if dag_id in webserver_dags %}
+              <a class="label label-default schedule {{ dag.dag_id }}" href="{{ url_for('dagrun.index_view') }}?flt2_dag_id_equals={{ dag.dag_id }}">
+                    {{ dag.schedule_interval }}
+                </a>
+                {% endif %}
+            </td>
+
+            <!-- Column 5: Dag Owners -->
+            <td>
+              {{ dag.owner if dag else orm_dags[dag_id].owners }}
+            </td>
+
+            <!-- Column 6: Recent Tasks -->
+            <td style="padding:0px; width:200px; height:10px;">
+                <svg height="10" width="10" id='task-run-{{ dag.safe_dag_id }}' style="display: block;"></svg>
+            </td>
+
+            <!-- Column 7: Last Run -->
+            <td class="text-nowrap latest_dag_run {{ dag.dag_id }}">
+              {% if dag %}
+                {% set last_run = dag.get_last_dagrun(include_externally_triggered=True) %}
+                {% if last_run and last_run.execution_date %}
+                  <a href="{{ url_for('airflow.graph', dag_id=dag.dag_id, execution_date=last_run.execution_date) }}">
+                    {{ last_run.execution_date.strftime("%Y-%m-%d %H:%M") }}
+                  </a>
+                  <span aria-hidden="true" id="statuses_info" title="Start Date: {{ last_run.start_date.strftime("%Y-%m-%d %H:%M") }}" class="glyphicon glyphicon-info-sign"></span>
+                {% endif %}
+              {% endif %}
+            </td>
+
+            <!-- Column 8: Dag Runs -->
+            <td style="padding:0px; width:120px; height:10px;">
+                <svg height="10" width="10" id='dag-run-{{ dag.safe_dag_id }}' style="display: block;"></svg>
+            </td>
+
+        </tr>
+        {% endfor %}
+
+                    </tbody>
+                </table>
+            </div>
+        </div>
+</div>
+{% endblock %}
+
+
+{% block tail %}
+  {{ super() }}
+  <script src="{{ url_for('static', filename='d3.v3.min.js') }}"></script>
+  <script src="{{ url_for('static', filename='jquery.dataTables.min.js') }}"></script>
+  <script src="{{ url_for('static', filename='bootstrap-toggle.min.js') }}"></script>
+  <script>
+
+      all_dags = $("[id^=toggle]");
+      $.each(all_dags, function(i,v) {
+        $(v).change (function() {
+          var dag_id =  $(v).attr('dag_id');
+          if ($(v).prop('checked')) {
+            is_paused = 'true'
+          } else {
+            is_paused = 'false'
+          }
+          url = window.location.href.split('/').slice(0,-2).join('/') + '/airflow/paused?is_paused=' + is_paused + '&dag_id=' + dag_id;
+          $.get(url);
+        });
+      });
+
+      all_dags_active = $("[id^=active]");
+      $.each(all_dags_active, function(i,v) {
+        $(v).change (function() {
+          var dag_id =  $(v).attr('dag_id');
+          if ($(v).prop('checked')) {
+            is_active = 'true'
+          } else {
+            is_active = 'false'
+          }
+          // url = window.location.href.split('/').slice(0,-2).join('/') + '/airflow/paused?is_paused=' + is_paused + '&dag_id=' + dag_id;
+          url = window.location.href + 'active?is_active=' + is_active + '&dag_id=' + dag_id;
+          $.get(url);
+        });
+      });
+
+
+      $('#dags').dataTable({
+        "iDisplayLength": 500,
+        "bSort": false,
+        "searching": false,
+        "ordering": false,
+        "paging": false,
+        "info": false
+      });
+      $("#main_content").show(250);
+      diameter = 25;
+      circle_margin = 4;
+      stroke_width = 2;
+      stroke_width_hover = 6;
+      d3.json("{{ url_for('airflow.blocked') }}", function(error, json) {
+        $.each(json, function() {
+          $('.label.schedule.' + this.dag_id)
+          .attr('title', this.active_dag_run + '/' + this.max_active_runs + ' active dag runs')
+          .tooltip();
+          if(this.active_dag_run >= this.max_active_runs) {
+            $('.label.schedule.' + this.dag_id)
+            .css('background-color', 'red');
+          }
+        });
+      });
+      d3.json("{{ url_for('airflow.dag_stats') }}", function(error, json) {
+        for(var dag_id in json) {
+            states = json[dag_id];
+            g = d3.select('svg#dag-run-' + dag_id)
+              .attr('height', diameter + (stroke_width_hover * 2))
+              .attr('width', '110px')
+              .selectAll("g")
+              .data(states)
+              .enter()
+              .append('g')
+              .attr('transform', function(d, i) {
+                x = (i * (diameter + circle_margin)) + (diameter/2 + circle_margin);
+                y = (diameter/2) + stroke_width_hover;
+                return 'translate(' + x + ',' + y + ')';
+              });
+
+            g.append('text')
+              .attr('fill', 'black')
+              .attr('text-anchor', 'middle')
+              .attr('vertical-align', 'middle')
+              .attr('font-size', 8)
+              .attr('y', 3)
+              .text(function(d){ return d.count > 0 ? d.count : ''; });
+
+            g.append('circle')
+              .attr('stroke-width', function(d) {
+                  if (d.count > 0)
+                    return stroke_width;
+                  else {
+                    return 1;
+                  }
+              })
+              .attr('stroke', function(d) {
+                  if (d.count > 0)
+                    return d.color;
+                  else {
+                    return 'gainsboro';
+                  }
+              })
+              .attr('fill-opacity', 0)
+              .attr('r', diameter/2)
+              .attr('title', function(d) {return d.state})
+              .attr('style', function(d) {
+                if (d.count > 0)
+                    return"cursor:pointer;"
+              })
+              .on('click', function(d, i) {
+                  if (d.count > 0)
+                    window.location = "{{ url_for('dagrun.index_view') }}?flt1_dag_id_equals=" + d.dag_id + "&flt2_state_equals=" + d.state;
+              })
+              .on('mouseover', function(d, i) {
+                if (d.count > 0) {
+                    d3.select(this).transition().duration(400)
+                      .attr('fill-opacity', 0.3)
+                      .style("stroke-width", stroke_width_hover);
+                }
+              })
+              .on('mouseout', function(d, i) {
+                if (d.count > 0) {
+                    d3.select(this).transition().duration(400)
+                      .attr('fill-opacity', 0)
+                      .style("stroke-width", stroke_width);
+                }
+              })
+              .style("opacity", 0)
+              .transition()
+              .duration(500)
+              .delay(function(d, i){return i*50;})
+              .style("opacity", 1);
+            d3.select("#loading").remove();
+        }
+        $("#pause_header").tooltip();
+        $("#statuses_info").tooltip();
+
+        $("circle").tooltip({
+          html: true,
+          container: "body",
+        });
+      });
+      d3.json("{{ url_for('airflow.task_stats') }}", function(error, json) {
+        for(var dag_id in json) {
+            states = json[dag_id];
+            g = d3.select('svg#task-run-' + dag_id)
+              .attr('height', diameter + (stroke_width_hover * 2))
+              .attr('width', '240px')
+              .selectAll("g")
+              .data(states)
+              .enter()
+              .append('g')
+              .attr('transform', function(d, i) {
+                x = (i * (diameter + circle_margin)) + (diameter/2 + circle_margin);
+                y = (diameter/2) + stroke_width_hover;
+                return 'translate(' + x + ',' + y + ')';
+              });
+
+            g.append('text')
+              .attr('fill', 'black')
+              .attr('text-anchor', 'middle')
+              .attr('vertical-align', 'middle')
+              .attr('font-size', 8)
+              .attr('y', 3)
+              .text(function(d){ return d.count > 0 ? d.count : ''; });
+
+            g.append('circle')
+              .attr('stroke-width', function(d) {
+                  if (d.count > 0)
+                    return stroke_width;
+                  else {
+                    return 1;
+                  }
+              })
+              .attr('stroke', function(d) {
+                  if (d.count > 0)
+                    return d.color;
+                  else {
+                    return 'gainsboro';
+                  }
+              })
+              .attr('fill-opacity', 0)
+              .attr('r', diameter/2)
+              .attr('title', function(d) {return d.state})
+              .attr('style', function(d) {
+                if (d.count > 0)
+                    return"cursor:pointer;"
+              })
+              .on('click', function(d, i) {
+                  if (d.count > 0)
+                    window.location = "{{ url_for('taskinstance.index_view') }}?flt1_dag_id_equals=" + d.dag_id + "&flt2_state_equals=" + d.state;
+              })
+              .on('mouseover', function(d, i) {
+                if (d.count > 0) {
+                    d3.select(this).transition().duration(400)
+                      .attr('fill-opacity', 0.3)
+                      .style("stroke-width", stroke_width_hover);
+                }
+              })
+              .on('mouseout', function(d, i) {
+                if (d.count > 0) {
+                    d3.select(this).transition().duration(400)
+                      .attr('fill-opacity', 0)
+                      .style("stroke-width", stroke_width);
+                }
+              })
+              .style("opacity", 0)
+              .transition()
+              .duration(500)
+              .delay(function(d, i){return i*50;})
+              .style("opacity", 1);
+            d3.select("#loading").remove();
+        }
+        $("#pause_header").tooltip();
+        $("#statuses_info").tooltip();
+
+        $("circle").tooltip({
+          html: true,
+          container: "body",
+        });
+      });
+  </script>
+{% endblock %}
